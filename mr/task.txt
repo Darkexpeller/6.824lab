@@ -1,0 +1,50 @@
+（1）Coordinator
+        管理 Map 和 Reduce 任务
+
+        读取输入文件，为每个文件创建一个 Map 任务。
+        维护 Reduce 任务数量 (nReduce)，并确保每个 Map 任务的输出正确分配到 nReduce 个 Reduce 任务中。
+        追踪任务状态（未开始、进行中、已完成）。
+        确保 Map 任务完成后才开始 Reduce 任务。
+        任务调度
+
+        Worker 启动后，请求任务（Map 或 Reduce）。
+        Coordinator 分配任务给 Worker。
+        如果 Worker 在 10 秒内未完成任务，Coordinator 重新分配任务。
+        任务完成检测
+
+        Map 阶段：所有 Map 任务完成后，才能进入 Reduce 阶段。
+        Reduce 阶段：所有 Reduce 任务完成后，整个 MapReduce 任务结束。
+        Done() 方法返回 true，Coordinator 退出。
+
+
+（2）Worker
+        任务获取
+
+        通过 RPC 请求任务（Map 或 Reduce）。
+        如果没有任务可执行，则等待一段时间后再次请求。
+        Map 任务
+
+        读取输入文件，调用 Map() 处理数据，输出 中间键值对。
+        使用哈希函数 ihash(key) 确定该键值对应的 Reduce 任务。
+        将中间结果写入 mr-X-Y 格式的文件（X 为 Map 任务编号，Y 为 Reduce 任务编号）。
+        任务完成后，通知 Coordinator。
+        Reduce 任务
+
+        读取 mr-X-Y 格式的中间文件，合并相同 Key 的数据。
+        调用 Reduce() 处理数据，输出 mr-out-Y 结果文件。
+        任务完成后，通知 Coordinator。
+        失败恢复
+
+        若 RPC 调用失败（Coordinator 可能已退出），Worker 也应该终止。
+        可以利用 call() 的返回值检测 Coordinator 状态。
+3. 额外要求
+
+        输出格式：
+        mr-out-X 文件，每行格式为 <key> <value>，必须匹配 mrsequential.go 的格式。
+        并行执行：
+        Map 任务和 Reduce 任务应尽可能并行执行。
+        故障恢复：
+        如果 Worker 崩溃，Coordinator 在 10 秒后重新分配任务。
+        数据格式：
+        Map 任务输出 JSON 格式的 Key-Value 对象。
+        Reduce 任务读取 JSON 格式的数据进行合并。
