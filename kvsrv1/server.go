@@ -2,10 +2,8 @@ package kvsrv
 
 import (
 	"log"
-	"net"
 	"os"
 
-	netrpc "net/rpc"
 	"sync"
 
 	"6.5840/kvsrv1/rpc"
@@ -13,7 +11,7 @@ import (
 	tester "6.5840/tester1"
 )
 
-func InitCoorLog() int {
+func InitServerLog() int {
 	logFile, err := os.OpenFile("../Server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return -1
@@ -39,32 +37,33 @@ type VV struct { //(value,version)
 
 type KVServer struct {
 	mu   sync.Mutex
-	data map[string]VV
+	data map[string]*VV
 	// Your definitions here.
 }
 
 func MakeKVServer() *KVServer {
 
 	kv := &KVServer{}
-	rpcs := netrpc.NewServer()
-	rpcs.Register(kv)
-	l, e := net.Listen("tcp", "1234")
-	if e != nil {
-		log.Printf("网络出错")
-		return nil
-	}
-	go func() {
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				go rpcs.ServeConn(conn)
+	kv.data = make(map[string]*VV)
+	// rpcs := netrpc.NewServer()
+	// rpcs.Register(kv)
+	// l, e := net.Listen("tcp", "1234")
+	// if e != nil {
+	// 	log.Printf("网络出错")
+	// 	return nil
+	// }
+	// go func() {
+	// 	for {
+	// 		conn, err := l.Accept()
+	// 		if err != nil {
+	// 			go rpcs.ServeConn(conn)
 
-			} else {
-				break
-			}
-		}
-		l.Close()
-	}()
+	// 		} else {
+	// 			break
+	// 		}
+	// 	}
+	// 	l.Close()
+	// }()
 
 	// Your code here.
 	return kv
@@ -73,6 +72,18 @@ func MakeKVServer() *KVServer {
 // Get returns the value and version for args.Key, if args.Key
 // exists. Otherwise, Get returns ErrNoKey.
 func (kv *KVServer) Get(args *rpc.GetArgs, reply *rpc.GetReply) {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	v, ok := kv.data[args.Key]
+	if ok {
+		log.Printf("Get operate: key=%v (value,version)=%v", args.Key, v)
+		reply.Value = v.value
+		reply.Version = rpc.Tversion(v.version)
+		reply.Err = rpc.OK
+
+	} else {
+		reply.Err = rpc.ErrNoKey
+	}
 	// Your code here.
 }
 
@@ -81,6 +92,27 @@ func (kv *KVServer) Get(args *rpc.GetArgs, reply *rpc.GetReply) {
 // If the key doesn't exist, Put installs the value if the
 // Args.Version is 0.
 func (kv *KVServer) Put(args *rpc.PutArgs, reply *rpc.PutReply) {
+	kv.mu.Lock()
+	defer kv.mu.Unlock()
+	v, ok := kv.data[args.Key]
+	if ok {
+		if v.version == uint64(args.Version) {
+			v.value = args.Value
+			v.version++
+			reply.Err = rpc.OK
+		} else {
+			reply.Err = rpc.ErrVersion
+		}
+
+	} else {
+		if args.Version == 0 {
+			kv.data[args.Key] = &VV{args.Value, 1}
+			reply.Err = rpc.OK
+		} else {
+			reply.Err = rpc.ErrNoKey
+		}
+
+	}
 	// Your code here.
 }
 
@@ -90,7 +122,7 @@ func (kv *KVServer) Kill() {
 
 // You can ignore all arguments; they are for replicated KVservers
 func StartKVServer(ends []*labrpc.ClientEnd, gid tester.Tgid, srv int, persister *tester.Persister) []tester.IService {
-	InitCoorLog()
+	InitServerLog()
 	kv := MakeKVServer()
 	return []tester.IService{kv}
 }
