@@ -25,7 +25,15 @@ type Lock struct {
 // perform a Put or Get by calling lk.ck.Put() or lk.ck.Get().
 func MakeLock(ck kvtest.IKVClerk, l string) *Lock {
 	lk := &Lock{ck: ck, ls: l, id: kvtest.RandValue(8)}
-	ck.Put(l, "", 0)
+	fmt.Printf("id: %v\n", lk.id)
+	var err rpc.Err
+	for {
+		err = ck.Put(l, "", 0)
+		if err != rpc.ErrMaybe {
+			break
+		}
+	}
+
 	// You may add code here
 	return lk
 }
@@ -35,13 +43,16 @@ func (lk *Lock) Acquire() {
 
 		value, version, _ := lk.ck.Get(lk.ls)
 		if value == "" { //锁处于空闲状态
-			Err := lk.ck.Put(lk.ls, lk.id, version)
+
+			Err := lk.ck.Put(lk.ls, lk.id, version) //即使有多个client同时感知到空闲锁，由于(value,version)的存在且Put操作并发安全，因此只允许一个client获取到锁
 			if Err == rpc.OK {
 				lk.version = version + 1
 				return
 			}
-		} else {
-			continue
+		} else if value == lk.id { //ErrMaybe情况，Put()可能已经把值应用
+			lk.version = version
+			return
+
 		}
 
 	}
@@ -49,9 +60,14 @@ func (lk *Lock) Acquire() {
 }
 
 func (lk *Lock) Release() {
-	Err := lk.ck.Put(lk.ls, "", lk.version)
-	if Err != rpc.OK {
-		fmt.Printf("锁释放失败:%d", lk.version)
+	var Err rpc.Err = ""
+	for {
+		Err = lk.ck.Put(lk.ls, "", lk.version)
+		if Err != rpc.ErrMaybe { //只要不是ErrMaybe就代表释放完毕(除此之外可能是ErrVersion或者OK)
+			return
+		}
+
 	}
+
 	// Your code here
 }
